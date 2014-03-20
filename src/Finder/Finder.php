@@ -334,7 +334,14 @@ class Finder implements \IteratorAggregate, \Countable
 			list(, $operator, $date) = $matches;
 			$operator = $operator ? $operator : '=';
 		}
-		$date = DateTime::from($date)->format('U');
+
+		if ($date === NULL) {
+			$date = time();
+		} elseif ($date instanceof \DateTime || $date instanceof \DateTimeInterface) {
+			$date = $date->format('U');
+		} elseif (!is_numeric($date)) {
+			$date = strtotime($date);
+		}
 		return $this->filter(function (RecursiveDirectoryIterator $file) use ($operator, $date) {
 			return self::compare($file->getMTime(), $operator, $date);
 		});
