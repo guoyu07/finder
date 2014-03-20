@@ -120,7 +120,7 @@ class Finder implements \IteratorAggregate, \Countable
 	public function from(...$paths)
 	{
 		if ($this->paths) {
-			throw new Nette\InvalidStateException('Directory to search has already been specified.');
+			throw new \InvalidArgumentException('Directory to search has already been specified.');
 		}
 		$this->paths = is_array($paths[0]) ? $paths[0] : $paths;
 		$this->cursor = & $this->exclude;
@@ -187,7 +187,7 @@ class Finder implements \IteratorAggregate, \Countable
 	public function getIterator()
 	{
 		if (!$this->paths) {
-			throw new Nette\InvalidStateException('Call in() or from() to specify directory to search.');
+			throw new \InvalidArgumentException('Call in() or from() to specify directory to search.');
 
 		} elseif (count($this->paths) === 1) {
 			return $this->buildIterator($this->paths[0]);
@@ -306,7 +306,7 @@ class Finder implements \IteratorAggregate, \Countable
 	{
 		if (func_num_args() === 1) { // in $operator is predicate
 			if (!preg_match('#^(?:([=<>!]=?|<>)\s*)?((?:\d*\.)?\d+)\s*(K|M|G|)B?\z#i', $operator, $matches)) {
-				throw new Nette\InvalidArgumentException('Invalid size predicate format.');
+				throw new \InvalidArgumentException('Invalid size predicate format.');
 			}
 			list(, $operator, $size, $unit) = $matches;
 			static $units = ['' => 1, 'k' => 1e3, 'm' => 1e6, 'g' => 1e9];
@@ -329,7 +329,7 @@ class Finder implements \IteratorAggregate, \Countable
 	{
 		if (func_num_args() === 1) { // in $operator is predicate
 			if (!preg_match('#^(?:([=<>!]=?|<>)\s*)?(.+)\z#i', $operator, $matches)) {
-				throw new Nette\InvalidArgumentException('Invalid date predicate format.');
+				throw new \InvalidArgumentException('Invalid date predicate format.');
 			}
 			list(, $operator, $date) = $matches;
 			$operator = $operator ? $operator : '=';
@@ -366,7 +366,7 @@ class Finder implements \IteratorAggregate, \Countable
 			case '<>':
 				return $l != $r;
 			default:
-				throw new Nette\InvalidArgumentException("Unknown operator $operator.");
+				throw new \InvalidArgumentException("Unknown operator $operator.");
 		}
 	}
 
