@@ -10,8 +10,6 @@ declare(strict_types=1);
 namespace Nette\Utils;
 
 use Nette;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 
 
 /**
@@ -41,7 +39,7 @@ class Finder implements \IteratorAggregate, \Countable
 	private $exclude = [];
 
 	/** @var int */
-	private $order = RecursiveIteratorIterator::SELF_FIRST;
+	private $order = TRUE;
 
 	/** @var int */
 	private $maxDepth = -1;
@@ -93,9 +91,8 @@ class Finder implements \IteratorAggregate, \Countable
 		$this->cursor = &$this->groups[];
 		$pattern = self::buildPattern($masks);
 		if ($type || $pattern) {
-			$this->filter(function (RecursiveDirectoryIterator $file) use ($type, $pattern) {
-				return !$file->isDot()
-					&& (!$type || $file->$type())
+			$this->filter(function (FileInfo $file) use ($type, $pattern) {
+				return (!$type || $file->$type())
 					&& (!$pattern || preg_match($pattern, '/' . strtr($file->getSubPathName(), '\\', '/')));
 			});
 		}
@@ -137,7 +134,7 @@ class Finder implements \IteratorAggregate, \Countable
 	 */
 	public function childFirst()
 	{
-		$this->order = RecursiveIteratorIterator::CHILD_FIRST;
+		$this->order = FALSE;
 		return $this;
 	}
 
@@ -188,18 +185,9 @@ class Finder implements \IteratorAggregate, \Countable
 	{
 		if (!$this->paths) {
 			throw new Nette\InvalidStateException('Call in() or from() to specify directory to search.');
-
-		} elseif (count($this->paths) === 1) {
-			return $this->buildIterator((string) $this->paths[0]);
-
-		} else {
-			$iterator = new \AppendIterator();
-			$iterator->append($workaround = new \ArrayIterator(['workaround PHP bugs #49104, #63077']));
-			foreach ($this->paths as $path) {
-				$iterator->append($this->buildIterator((string) $path));
-			}
-			unset($workaround[0]);
-			return $iterator;
+		}
+		foreach ($this->paths as $path) {
+			yield from $this->buildIterator($path);
 		}
 	}
 
@@ -207,31 +195,26 @@ class Finder implements \IteratorAggregate, \Countable
 	/**
 	 * Returns per-path iterator.
 	 */
-	private function buildIterator(string $path): \Iterator
+	private function buildIterator(string $path, array $subDirs = []): \Iterator
 	{
-		$iterator = new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::FOLLOW_SYMLINKS);
+		if ($this->maxDepth >= 0 && count($subDirs) > $this->maxDepth) {
+			return;
+		}
 
-		if ($this->exclude) {
-			$iterator = new \RecursiveCallbackFilterIterator($iterator, function ($foo, $bar, RecursiveDirectoryIterator $file) {
-				if (!$file->isDot() && !$file->isFile()) {
-					foreach ($this->exclude as $filter) {
-						if (!$filter($file)) {
-							return FALSE;
-						}
+		$subPath = implode(DIRECTORY_SEPARATOR, $subDirs);
+		$iterator = new \FilesystemIterator($path, \FilesystemIterator::FOLLOW_SYMLINKS | \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::CURRENT_AS_PATHNAME);
+
+		foreach ($iterator as $fileName) {
+			$file = new FileInfo($fileName, $subPath);
+			if ($file->isDir()) {
+				foreach ($this->exclude as $filter) {
+					if (!$filter($file)) {
+						continue 2;
 					}
 				}
-				return TRUE;
-			});
-		}
-
-		if ($this->maxDepth !== 0) {
-			$iterator = new RecursiveIteratorIterator($iterator, $this->order);
-			$iterator->setMaxDepth($this->maxDepth);
-		}
-
-		$iterator = new \CallbackFilterIterator($iterator, function ($foo, $bar, \Iterator $file) {
-			while ($file instanceof \OuterIterator) {
-				$file = $file->getInnerIterator();
+				if ($this->order) {
+					yield from $this->buildIterator($fileName, array_merge($subDirs, [$file->getBasename()]));
+				}
 			}
 
 			foreach ($this->groups as $filters) {
@@ -240,12 +223,14 @@ class Finder implements \IteratorAggregate, \Countable
 						continue 2;
 					}
 				}
-				return TRUE;
+				yield $fileName => $file;
+				break;
 			}
-			return FALSE;
-		});
 
-		return $iterator;
+			if (!$this->order && $file->isDir()) {
+				yield from $this->buildIterator($fileName, array_merge($subDirs, [$file->getBasename()]));
+			}
+		}
 	}
 
 
@@ -262,7 +247,7 @@ class Finder implements \IteratorAggregate, \Countable
 	{
 		$pattern = self::buildPattern(is_array($masks[0]) ? $masks[0] : $masks);
 		if ($pattern) {
-			$this->filter(function (RecursiveDirectoryIterator $file) use ($pattern) {
+			$this->filter(function (FileInfo $file) use ($pattern) {
 				return !preg_match($pattern, '/' . strtr($file->getSubPathName(), '\\', '/'));
 			});
 		}
@@ -272,7 +257,7 @@ class Finder implements \IteratorAggregate, \Countable
 
 	/**
 	 * Restricts the search using callback.
-	 * @param  callable  function (RecursiveDirectoryIterator $file)
+	 * @param  callable  function (FileInfo $file)
 	 * @return static
 	 */
 	public function filter(callable $callback)
@@ -309,7 +294,7 @@ class Finder implements \IteratorAggregate, \Countable
 			$size *= $units[strtolower($unit)];
 			$operator = $operator ? $operator : '=';
 		}
-		return $this->filter(function (RecursiveDirectoryIterator $file) use ($operator, $size) {
+		return $this->filter(function (FileInfo $file) use ($operator, $size) {
 			return self::compare($file->getSize(), $operator, $size);
 		});
 	}
@@ -331,7 +316,7 @@ class Finder implements \IteratorAggregate, \Countable
 			$operator = $operator ? $operator : '=';
 		}
 		$date = DateTime::from($date)->format('U');
-		return $this->filter(function (RecursiveDirectoryIterator $file) use ($operator, $date) {
+		return $this->filter(function (FileInfo $file) use ($operator, $date) {
 			return self::compare($file->getMTime(), $operator, $date);
 		});
 	}
